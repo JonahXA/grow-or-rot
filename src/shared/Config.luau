@@ -12,7 +12,7 @@ local Config = {}
 -- Identity
 -- ============================================================
 
-Config.GameName = "Phase0"
+Config.GameName = "GrowOrRot"
 
 -- Bump this when you change the shape of saved player data. Any profile with an
 -- older version runs through DataService's migration path on load.
@@ -21,35 +21,50 @@ Config.DataVersion = 1
 -- DataStore name. Changing this orphans all existing player data, which is
 -- exactly what you want when resetting a test. Add a suffix like "_test2".
 --
+-- Deliberately namespaced per game. DataStores are scoped to the experience, but
+-- keeping the name distinct from phase0's means a place misconfiguration can't
+-- quietly read or write the other project's profiles.
+--
 -- There is deliberately no separate receipt store: purchase receipts are
 -- recorded inside the player profile so that granting and marking are a single
 -- atomic write. See MonetizationService.
-Config.PlayerDataStore = "PlayerData_v1"
+Config.PlayerDataStore = "GrowOrRot_PlayerData_v1"
 
 -- ============================================================
--- Monetization
+-- Monetization — FILL THESE IN
 --
--- Live IDs for the EXP1 experience, universe 10673593342.
--- All three are priced at 1 Robux so self-testing purchases costs nothing
--- meaningful. Managed pricing is deliberately OFF on all of them — regional
--- price optimization would make the purchase test non-deterministic.
+-- Zeroed deliberately. The previous values belonged to the phase0 EXP1
+-- experience (universe 10673593342); a pass or product ID only works inside the
+-- experience that owns it, and cross-experience sales were disabled platform-wide
+-- in May 2026. These must be recreated against this game's own universe.
+--
+-- Monetization is inert while these are 0, and logs a warning rather than
+-- failing — so the game is fully playable before they exist.
+--
+-- Price them at 1 Robux for self-testing and leave Managed Pricing OFF, so
+-- regional price optimization can't make purchase tests non-deterministic.
 -- ============================================================
 
 Config.GamePasses = {
-	-- 2x coins on every earn, permanent.
-	DoubleCoins = 1943641498,
+	-- One free save when a crop would rot.
+	RotInsurance = 0, -- TODO
+	-- Raises mutation chance on every push tick.
+	SeedLuck = 0, -- TODO
+	-- Lets pushing continue offline up to a player-set threshold.
+	AutoHarvest = 0, -- TODO
 }
 
 Config.DeveloperProducts = {
-	-- One-time consumable coin grants.
-	Coins100 = 3700511457,
-	Coins500 = 3700519374,
+	ExtraPlot = 0, -- TODO
+	CoinsSmall = 0, -- TODO
+	InstantGrow = 0, -- TODO
 }
 
 -- How many coins each developer product grants. Keyed by the same names above.
+-- Only coin products belong here; ExtraPlot and InstantGrow grant something other
+-- than currency and get their own handling when the grow systems land.
 Config.ProductGrants = {
-	Coins100 = 100,
-	Coins500 = 500,
+	CoinsSmall = 100,
 }
 
 -- ============================================================
