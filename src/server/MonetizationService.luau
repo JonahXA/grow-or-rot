@@ -15,20 +15,29 @@
 	     refund request and a one-star review.
 
 	How this satisfies both: the receipt marker lives in the player's own
-	profile, so "add the coins" and "mark the receipt honored" are the same
-	single DataStore write. There is no window where one landed and the other
-	didn't. Sequence:
+	profile, so the grant and "mark the receipt honored" are the same single
+	DataStore write. There is no window where one landed and the other didn't.
 
 	    already marked in profile?  -> yes: return PurchaseGranted (replay)
-	    mutate coins + mark receipt in memory
+	    apply grant + mark receipt in memory
 	    DataService.save()          -> failed: roll both back, NotProcessedYet
 	                                -> ok:     return PurchaseGranted
 
-	Note the deliberate absence of a second DataStore and of UpdateAsync here.
-	An earlier draft of this file put the grant and the save inside a
-	receipt-store UpdateAsync transform. That throws at runtime: UpdateAsync
-	transform callbacks are not permitted to yield, and DataService.save yields.
-	It would also have made two stores that can disagree with each other.
+	Note the deliberate absence of a second DataStore and of UpdateAsync. An
+	earlier draft put the grant and the save inside a receipt-store UpdateAsync
+	transform. That throws at runtime: UpdateAsync transform callbacks are not
+	permitted to yield, and DataService.save yields.
+
+	This version was verified against production in phase0: three live purchases,
+	each granted exactly once.
+
+	--- Products that aren't currency ---
+
+	ExtraPlot and InstantGrow change gameplay state, not the wallet. Rather than
+	teach this file about plots, it exposes registerProductHandler so PlotService
+	registers its own grants at startup. That keeps the dependency one-way —
+	PlotService knows about monetization, monetization knows nothing about plots
+	— and avoids a circular require.
 ]]
 
 local MarketplaceService = game:GetService("MarketplaceService")
@@ -48,55 +57,116 @@ local MonetizationService = {}
 local productLookup: { [number]: string } = {}
 local shopOpened: { [Player]: boolean } = {}
 
+-- player -> { [passKey]: boolean }. Resolved once on join so the gameplay hot
+-- path never touches MarketplaceService.
+local ownedPasses: { [Player]: { [string]: boolean } } = {}
+
+-- Grant handlers for non-currency products, registered by the systems that own
+-- the state. Each returns true only if the grant actually applied.
+local productHandlers: { [string]: (Player) -> boolean } = {}
+
+-- Set by PlotService so a pass purchase can refresh the client immediately.
+local stateRefresh: ((Player) -> ())? = nil
+
 local function isConfigured(id: number?): boolean
 	return type(id) == "number" and id > 0
+end
+
+function MonetizationService.registerProductHandler(key: string, handler: (Player) -> boolean)
+	productHandlers[key] = handler
+end
+
+function MonetizationService.setStateRefresh(fn: (Player) -> ())
+	stateRefresh = fn
+end
+
+local function refresh(player: Player)
+	if stateRefresh then
+		stateRefresh(player)
+	end
 end
 
 -- ============================================================
 -- Game passes
 -- ============================================================
 
-local function checkDoubleCoins(player: Player)
-	local passId = Config.GamePasses.DoubleCoins
-	if not isConfigured(passId) then
-		EconomyService.setMultiplier(player, 1)
-		return
-	end
+function MonetizationService.hasPass(player: Player, passKey: string): boolean
+	local owned = ownedPasses[player]
+	return owned ~= nil and owned[passKey] == true
+end
 
-	local owns = false
-	for attempt = 1, 3 do
-		local ok, result = pcall(function()
-			return MarketplaceService:UserOwnsGamePassAsync(player.UserId, passId)
-		end)
-		if ok then
-			owns = result
-			break
+local function resolvePasses(player: Player)
+	local owned = {}
+
+	for passKey, passId in Config.GamePasses do
+		if isConfigured(passId) then
+			for attempt = 1, 3 do
+				local ok, result = pcall(function()
+					return MarketplaceService:UserOwnsGamePassAsync(player.UserId, passId)
+				end)
+				if ok then
+					owned[passKey] = result
+					break
+				end
+				warn(
+					string.format(
+						"[Monetization] pass check %d for %s (%s) failed: %s",
+						attempt,
+						player.Name,
+						passKey,
+						tostring(result)
+					)
+				)
+				task.wait(attempt)
+			end
+		else
+			owned[passKey] = false
 		end
-		warn(
-			string.format(
-				"[Monetization] pass check %d failed for %s: %s",
-				attempt,
-				player.Name,
-				tostring(result)
-			)
-		)
-		task.wait(attempt)
 	end
 
-	EconomyService.setMultiplier(player, if owns then Config.Economy.DoubleCoinsMultiplier else 1)
+	ownedPasses[player] = owned
+	refresh(player)
 end
 
 -- ============================================================
 -- Developer products
 -- ============================================================
 
-local function grantProduct(player: Player, configKey: string): boolean
-	local amount = Config.ProductGrants[configKey]
-	if not amount then
-		warn(string.format("[Monetization] no grant defined for %q", configKey))
-		return false
+--[[
+	Applies a product. Returns the rollback function on success, nil on failure.
+
+	Returning the undo rather than a bare boolean is what makes the durability
+	gate below correct for both currency and gameplay grants — the caller can
+	reverse whatever happened without knowing what it was.
+]]
+local function applyGrant(player: Player, configKey: string): (() -> ())?
+	local coins = Config.ProductGrants[configKey]
+	if coins then
+		if not EconomyService.addCoins(player, coins, "ProductPurchase", configKey) then
+			return nil
+		end
+		return function()
+			EconomyService.addCoins(player, -coins, "ProductRollback", configKey)
+		end
 	end
-	return EconomyService.addCoins(player, amount, "ProductPurchase", configKey)
+
+	local handler = productHandlers[configKey]
+	if not handler then
+		warn(string.format("[Monetization] no grant defined for %q", configKey))
+		return nil
+	end
+	if not handler(player) then
+		return nil
+	end
+
+	--[[
+		Gameplay grants have no clean inverse — un-ripening a crop the player has
+		already seen ripen would be worse than the duplicate it prevents. The
+		durability gate below still protects the common case, and the failure
+		mode here is a player keeping a grant we could not record, which is the
+		right direction to fail in.
+	]]
+	return function() end
 end
 
 local function processReceipt(receiptInfo: any): Enum.ProductPurchaseDecision
@@ -122,14 +192,14 @@ local function processReceipt(receiptInfo: any): Enum.ProductPurchaseDecision
 	local purchaseId = tostring(receiptInfo.PurchaseId)
 
 	-- Replay of a receipt this profile already honored. The marker was loaded
-	-- from the DataStore alongside the coins it granted, so if it's here, the
-	-- coins are too.
+	-- from the DataStore alongside whatever it granted, so if it's here, the
+	-- grant is too.
 	if profile.processedReceipts[purchaseId] then
 		return Enum.ProductPurchaseDecision.PurchaseGranted
 	end
 
-	local amount = Config.ProductGrants[configKey]
-	if not grantProduct(player, configKey) then
+	local undo = applyGrant(player, configKey)
+	if not undo then
 		return Enum.ProductPurchaseDecision.NotProcessedYet
 	end
 
@@ -137,11 +207,10 @@ local function processReceipt(receiptInfo: any): Enum.ProductPurchaseDecision
 	profile.purchaseCount += 1
 	DataService.rememberReceipt(profile, purchaseId)
 
-	-- Durability gate. Only claim the receipt once the grant AND the marker
-	-- have survived a real write.
+	-- Durability gate. Only claim the receipt once the grant AND the marker have
+	-- survived a real write.
 	if not DataService.save(player, false) then
-		-- Roll everything back so Roblox's retry doesn't double-grant.
-		EconomyService.addCoins(player, -amount, "ProductRollback", configKey)
+		undo()
 		profile.robuxSpent -= receiptInfo.CurrencySpent
 		profile.purchaseCount -= 1
 		DataService.forgetReceipt(profile, purchaseId)
@@ -156,6 +225,7 @@ local function processReceipt(receiptInfo: any): Enum.ProductPurchaseDecision
 		robux = receiptInfo.CurrencySpent,
 	})
 
+	refresh(player)
 	return Enum.ProductPurchaseDecision.PurchaseGranted
 end
 
@@ -202,10 +272,22 @@ function MonetizationService.start()
 	MarketplaceService.ProcessReceipt = processReceipt
 
 	MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, passId, wasPurchased)
-		if wasPurchased and passId == Config.GamePasses.DoubleCoins then
-			EconomyService.setMultiplier(player, Config.Economy.DoubleCoinsMultiplier)
-			Telemetry.custom(player, "GamePassPurchased", 1, { pass = "DoubleCoins" })
-			Telemetry.onboardingStep(player, Telemetry.OnboardingStep.FirstPurchase)
+		if not wasPurchased then
+			return
+		end
+		for passKey, configured in Config.GamePasses do
+			if isConfigured(configured) and passId == configured then
+				local owned = ownedPasses[player]
+				if not owned then
+					owned = {}
+					ownedPasses[player] = owned
+				end
+				owned[passKey] = true
+				Telemetry.custom(player, "GamePassPurchased", 1, { pass = passKey })
+				Telemetry.onboardingStep(player, Telemetry.OnboardingStep.FirstPurchase)
+				refresh(player)
+				break
+			end
 		end
 	end)
 
@@ -213,11 +295,12 @@ function MonetizationService.start()
 	requestRemote.OnServerEvent:Connect(onPurchaseRequest)
 
 	DataService.ProfileLoaded.Event:Connect(function(player)
-		task.spawn(checkDoubleCoins, player)
+		task.spawn(resolvePasses, player)
 	end)
 
 	Players.PlayerRemoving:Connect(function(player)
 		shopOpened[player] = nil
+		ownedPasses[player] = nil
 	end)
 end
 

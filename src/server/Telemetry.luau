@@ -28,9 +28,10 @@ local Telemetry = {}
 Telemetry.OnboardingStep = {
 	Joined = { 1, "Joined" },
 	DataLoaded = { 2, "DataLoaded" },
-	FirstClick = { 3, "FirstClick" },
-	FirstShopOpen = { 4, "FirstShopOpen" },
-	FirstPurchase = { 5, "FirstPurchase" },
+	FirstPlant = { 3, "FirstPlant" },
+	FirstHarvest = { 4, "FirstHarvest" },
+	FirstShopOpen = { 5, "FirstShopOpen" },
+	FirstPurchase = { 6, "FirstPurchase" },
 }
 
 -- Per-player funnel session id. A funnel session groups steps into one journey;

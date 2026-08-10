@@ -68,20 +68,115 @@ Config.ProductGrants = {
 }
 
 -- ============================================================
--- Economy tuning
+-- Economy
 -- ============================================================
 
 Config.Economy = {
-	CoinsPerClick = 1,
-	DoubleCoinsMultiplier = 2,
+	StartingCoins = 0,
 
-	-- Server-side rate limit. The client can spam the remote all it likes; the
-	-- server silently drops anything faster than this.
-	ClickCooldownSeconds = 0.15,
+	-- Server-side rate limit shared by every gameplay remote. A hooked client can
+	-- fire these thousands of times a second; without a floor that is a free
+	-- action printer.
+	ActionCooldownSeconds = 0.2,
 
-	-- If a player exceeds this many rejected clicks in a session, log a
-	-- suspicion event. Not a ban — just a signal that something is scripted.
+	-- Rejected actions past this count in one session log a suspicion event.
+	-- Not a ban — a signal that something is scripted.
 	SuspiciousRejectThreshold = 200,
+}
+
+-- ============================================================
+-- Grow — the core loop. Every number here is a tuning target, not a truth.
+--
+-- The design goal is that the optimal harvest point is NON-OBVIOUS and moves
+-- with weather and seed. If players work out "always harvest at tick 4" then the
+-- decision is dead and so is the game. Watch stats.totalRotted against retention.
+-- ============================================================
+
+Config.Grow = {
+	StartingPlots = 2,
+	MaxPlots = 12,
+
+	-- Seconds between push rolls once a crop is ripe.
+	PushTickSeconds = 10,
+
+	-- Rot chance on the first push tick, and how much it climbs per tick. This
+	-- rising pressure is what makes the decision tighten rather than stay flat.
+	RotChanceBase = 0.08,
+	RotChancePerTick = 0.02,
+
+	-- Hard ceiling so a very lucky run still ends. Without this the tail is
+	-- unbounded and one player can hold a crop forever.
+	RotChanceMax = 0.75,
+
+	-- Each mutation multiplies crop value. Stacks multiplicatively, so the
+	-- payoff curve is exponential while the risk curve is linear — that gap is
+	-- the whole reason pushing is tempting.
+	MutationMultiplier = 1.5,
+
+	-- Cosmetic tiers, purely for readout and bragging. Index = mutation count.
+	MutationNames = { "Lush", "Golden", "Prismatic", "Radiant", "Mythic" },
+}
+
+-- Seed types. `growTime` is seconds from planting to ripe; growth continues
+-- while the player is offline, but pushing does not — see PlotService.
+Config.Seeds = {
+	basic = {
+		displayName = "Basic Seed",
+		growTime = 60,
+		baseValue = 10,
+		mutationChance = 0.15,
+		cost = 0, -- always available
+	},
+	swift = {
+		displayName = "Swift Seed",
+		growTime = 30,
+		baseValue = 8,
+		mutationChance = 0.12,
+		cost = 50,
+	},
+	volatile = {
+		displayName = "Volatile Seed",
+		growTime = 90,
+		baseValue = 25,
+		mutationChance = 0.28,
+		cost = 250,
+		-- Higher reward AND higher risk: the seed that makes the decision hardest.
+		rotChanceBonus = 0.05,
+	},
+}
+
+Config.DefaultSeed = "basic"
+
+-- ============================================================
+-- Weather — a server-wide state machine, broadcast to everyone.
+--
+-- Cheap to build and it does three jobs: it shifts where the optimal decision
+-- sits, it creates shared moments, and it gives a reason to check back in.
+-- It is also why the world feels alive at 1 concurrent player.
+-- ============================================================
+
+Config.Weather = {
+	MinDurationSeconds = 90,
+	MaxDurationSeconds = 180,
+
+	States = {
+		{ id = "clear", displayName = "Clear", weight = 50, mutationDelta = 0, rotDelta = 0 },
+		{ id = "rain", displayName = "Rain", weight = 25, mutationDelta = 0.10, rotDelta = 0 },
+		{
+			id = "drought",
+			displayName = "Drought",
+			weight = 20,
+			mutationDelta = 0,
+			rotDelta = 0.06,
+		},
+		{
+			id = "rainbow",
+			displayName = "Rainbow",
+			weight = 5,
+			mutationDelta = 0.25,
+			rotDelta = 0.03,
+		},
+	},
 }
 
 -- ============================================================

@@ -3,11 +3,13 @@
 
 	Responsibilities, and nothing beyond them:
 	  - build the HUD
-	  - fetch initial state, then render whatever the server pushes
-	  - forward intent (clicked, wants to buy) to the server
+	  - render whatever the server pushes
+	  - forward intent (buy this, prompt me for that)
 
-	It does not track coins, apply multipliers, or decide whether a purchase
-	succeeded. Every one of those is a server answer.
+	It does not track coins, compute crop value, decide rot, or judge whether a
+	purchase succeeded. Every one of those is a server answer. Planting and
+	harvesting are not even here — those run off in-world ProximityPrompts, which
+	the server owns end to end.
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -15,9 +17,11 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Remotes = require(ReplicatedStorage.Shared.Remotes)
 local HUD = require(script.HUD)
 
-local clickRemote = Remotes.get("ClickCoin") :: RemoteEvent
+local buySeedRemote = Remotes.get("BuySeed") :: RemoteEvent
 local purchaseRemote = Remotes.get("RequestPurchase") :: RemoteEvent
 local stateRemote = Remotes.get("StateChanged") :: RemoteEvent
+local plotEventRemote = Remotes.get("PlotEvent") :: RemoteEvent
+local weatherRemote = Remotes.get("WeatherChanged") :: RemoteEvent
 local getState = Remotes.get("GetState") :: RemoteFunction
 
 local hud = HUD.new()
@@ -27,22 +31,69 @@ stateRemote.OnClientEvent:Connect(function(state)
 	hud:render(state)
 end)
 
-hud.clickButton.Activated:Connect(function()
-	-- No payload. The server decides what a click is worth; sending an amount
-	-- here would just be a number an exploiter edits.
-	clickRemote:FireServer()
+weatherRemote.OnClientEvent:Connect(function(weather)
+	hud.lastWeather = weather
+	hud:renderWeather(weather)
 end)
 
-hud.buyPass.Activated:Connect(function()
-	purchaseRemote:FireServer("gamepass", "DoubleCoins")
+local GREEN = Color3.fromRGB(150, 240, 160)
+local GOLD = Color3.fromRGB(255, 214, 66)
+local RED = Color3.fromRGB(255, 120, 120)
+local BLUE = Color3.fromRGB(150, 200, 255)
+
+plotEventRemote.OnClientEvent:Connect(function(payload)
+	if type(payload) ~= "table" then
+		return
+	end
+	if payload.kind == "mutated" then
+		hud:toast(
+			string.format("%s!  worth %d", payload.mutationName or "Mutated", payload.value),
+			GOLD
+		)
+	elseif payload.kind == "rotted" then
+		hud:toast(string.format("Rotted — lost %d", payload.value), RED)
+	elseif payload.kind == "saved" then
+		hud:toast(string.format("Insurance saved %d", payload.value), BLUE)
+	elseif payload.kind == "harvested" then
+		hud:toast(string.format("Harvested %d coins", payload.value), GREEN)
+	end
 end)
 
-hud.buy100.Activated:Connect(function()
-	purchaseRemote:FireServer("product", "Coins100")
+hud.buySwift.Activated:Connect(function()
+	buySeedRemote:FireServer("swift")
 end)
 
-hud.buy500.Activated:Connect(function()
-	purchaseRemote:FireServer("product", "Coins500")
+hud.buyVolatile.Activated:Connect(function()
+	buySeedRemote:FireServer("volatile")
+end)
+
+hud.passRotInsurance.Activated:Connect(function()
+	purchaseRemote:FireServer("gamepass", "RotInsurance")
+end)
+
+hud.passSeedLuck.Activated:Connect(function()
+	purchaseRemote:FireServer("gamepass", "SeedLuck")
+end)
+
+hud.passAutoHarvest.Activated:Connect(function()
+	purchaseRemote:FireServer("gamepass", "AutoHarvest")
+end)
+
+hud.buyPlot.Activated:Connect(function()
+	purchaseRemote:FireServer("product", "ExtraPlot")
+end)
+
+hud.buyInstantGrow.Activated:Connect(function()
+	purchaseRemote:FireServer("product", "InstantGrow")
+end)
+
+-- The weather countdown ticks locally off the server-provided end time, so it
+-- stays smooth without a remote firing every second.
+task.spawn(function()
+	while true do
+		task.wait(1)
+		hud:renderWeather(hud.lastWeather)
+	end
 end)
 
 -- Initial pull. The server yields until the profile is loaded, so this can take
@@ -54,6 +105,6 @@ task.spawn(function()
 	if ok then
 		hud:render(state)
 	else
-		warn("[Phase0] initial state fetch failed: " .. tostring(state))
+		warn("[GrowOrRot] initial state fetch failed: " .. tostring(state))
 	end
 end)

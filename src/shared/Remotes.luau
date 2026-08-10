@@ -18,15 +18,30 @@ local Remotes = {}
 
 -- name -> class
 local DEFINITIONS: { [string]: string } = {
-	-- Client -> Server: "I clicked the button." Carries no payload; the server
-	-- decides what a click is worth. Never trust a client-supplied amount.
-	ClickCoin = "RemoteEvent",
+	-- Client -> Server: "plant seed X in plot N." Both arguments are validated
+	-- server-side; owning the seed and the plot being empty are server facts.
+	Plant = "RemoteEvent",
+
+	-- Client -> Server: "harvest plot N." Carries no value — the server decides
+	-- what the crop is worth. Never trust a client-supplied amount.
+	Harvest = "RemoteEvent",
+
+	-- Client -> Server: "buy seed X with coins."
+	BuySeed = "RemoteEvent",
 
 	-- Client -> Server: "Prompt me to buy X." Server calls MarketplaceService.
 	RequestPurchase = "RemoteEvent",
 
-	-- Server -> Client: authoritative state push (coins, multiplier, owned passes).
+	-- Server -> Client: authoritative state push (coins, plots, seeds, passes).
 	StateChanged = "RemoteEvent",
+
+	-- Server -> Client: one plot resolved a push tick. Carries the outcome so
+	-- the client can play feedback ("Golden!" / "Rotted!") rather than inferring
+	-- it from a state diff.
+	PlotEvent = "RemoteEvent",
+
+	-- Server -> All: weather changed.
+	WeatherChanged = "RemoteEvent",
 
 	-- Client -> Server, yields: fetch full state on join.
 	GetState = "RemoteFunction",

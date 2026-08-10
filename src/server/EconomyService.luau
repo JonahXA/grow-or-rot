@@ -1,79 +1,70 @@
 --[[
-	EconomyService — the only code allowed to change a player's coin balance.
+	EconomyService — the only code allowed to change a player's coin balance,
+	and the shared rate limiter for every gameplay remote.
 
-	Everything here is server-authoritative. The ClickCoin remote carries no
-	payload precisely so there is nothing for a client to forge; the server
-	decides that a click is worth Config.Economy.CoinsPerClick and applies the
-	pass multiplier itself.
+	Everything here is server-authoritative. Remotes carry intent ("harvest plot
+	3"), never value ("give me 4200 coins"), so there is nothing for a client to
+	forge. The server owns every number.
 
-	The rate limiter is the actual anti-exploit. A hooked client can fire the
-	remote thousands of times a second, and without the cooldown that is a
-	linear coin printer.
+	The rate limiter is the actual anti-exploit. A hooked client can fire a
+	remote thousands of times a second; without a floor that is a free action
+	printer. It is centralised here so a new remote cannot accidentally ship
+	without one.
 ]]
 
 local Players = game:GetService("Players")
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.Config)
-local Remotes = require(ReplicatedStorage.Shared.Remotes)
 
 local DataService = require(script.Parent.DataService)
 local Telemetry = require(script.Parent.Telemetry)
 
 local EconomyService = {}
 
-local lastClick: { [Player]: number } = {}
-local rejectedClicks: { [Player]: number } = {}
+local lastAction: { [Player]: number } = {}
+local rejectedActions: { [Player]: number } = {}
 local suspicionLogged: { [Player]: boolean } = {}
-local firstClickDone: { [Player]: boolean } = {}
 
--- Set by MonetizationService once pass ownership is known. Kept as a plain
--- lookup so the hot click path never touches MarketplaceService.
-local multipliers: { [Player]: number } = {}
+--[[
+	Call at the top of every remote handler. Returns false when the caller is
+	going too fast, in which case the handler must return without doing work.
 
-function EconomyService.setMultiplier(player: Player, multiplier: number)
-	multipliers[player] = multiplier
-	EconomyService.pushState(player)
-end
-
-function EconomyService.getMultiplier(player: Player): number
-	return multipliers[player] or 1
-end
-
-function EconomyService.buildState(player: Player)
-	local profile = DataService.get(player)
-	if not profile then
-		return nil
+	Deliberately one shared budget across all actions rather than per-remote:
+	an exploiter alternating between two remotes should not get double the rate.
+]]
+function EconomyService.allowAction(player: Player): boolean
+	local now = os.clock()
+	local previous = lastAction[player]
+	if previous and (now - previous) < Config.Economy.ActionCooldownSeconds then
+		local count = (rejectedActions[player] or 0) + 1
+		rejectedActions[player] = count
+		if count >= Config.Economy.SuspiciousRejectThreshold and not suspicionLogged[player] then
+			suspicionLogged[player] = true
+			Telemetry.custom(player, "SuspiciousActionRate", count)
+			warn(
+				string.format(
+					"[Economy] %s exceeded action rate limit %d times",
+					player.Name,
+					count
+				)
+			)
+		end
+		return false
 	end
-	return {
-		coins = profile.coins,
-		multiplier = EconomyService.getMultiplier(player),
-		ownsDoubleCoins = EconomyService.getMultiplier(player) > 1,
-	}
-end
-
--- Resolved once in start(). pushState runs on every coin change, and
--- Remotes.get does a WaitForChild each call, which has no business being on a
--- hot path.
-local stateRemote: RemoteEvent? = nil
-
-function EconomyService.pushState(player: Player)
-	if not stateRemote then
-		return -- start() hasn't run yet; the GetState fetch will cover this
-	end
-	local state = EconomyService.buildState(player)
-	if not state then
-		return
-	end
-	stateRemote:FireClient(player, state)
+	lastAction[player] = now
+	return true
 end
 
 --[[
-	The single mutation point.
+	The single mutation point for currency.
 
 	`reason` and `sku` flow straight into the economy analytics event, which is
 	what makes the Creator Dashboard economy chart readable later. If you add a
-	new way to gain or spend coins, give it a distinct reason string.
+	new way to gain or spend coins, give it a distinct reason string — otherwise
+	you lose the ability to tell harvest income from purchased income, which is
+	exactly the split that reveals whether the loop or the shop is carrying the
+	game.
 ]]
 function EconomyService.addCoins(
 	player: Player,
@@ -99,70 +90,19 @@ function EconomyService.addCoins(
 	end
 
 	Telemetry.economy(player, amount > 0, "Coins", amount, profile.coins, reason, sku)
-	EconomyService.pushState(player)
 	return true
 end
 
---[[
-	Single click handler. Both entry points route here — the HUD button (via the
-	ClickCoin remote) and the world part (via ClickDetector) — so the rate limit
-	and the first-click funnel step can't be bypassed by using the other path.
-]]
-function EconomyService.handleClick(player: Player)
+function EconomyService.canAfford(player: Player, amount: number): boolean
 	local profile = DataService.get(player)
-	if not profile then
-		return
-	end
-
-	local now = os.clock()
-	local previous = lastClick[player]
-	if previous and (now - previous) < Config.Economy.ClickCooldownSeconds then
-		local count = (rejectedClicks[player] or 0) + 1
-		rejectedClicks[player] = count
-		if count >= Config.Economy.SuspiciousRejectThreshold and not suspicionLogged[player] then
-			suspicionLogged[player] = true
-			Telemetry.custom(player, "SuspiciousClickRate", count)
-			warn(
-				string.format("[Economy] %s exceeded click rate limit %d times", player.Name, count)
-			)
-		end
-		return
-	end
-	lastClick[player] = now
-
-	if not firstClickDone[player] then
-		firstClickDone[player] = true
-		Telemetry.onboardingStep(player, Telemetry.OnboardingStep.FirstClick)
-		Telemetry.funnelStep(player, Telemetry.OnboardingStep.FirstClick)
-	end
-
-	local amount = Config.Economy.CoinsPerClick * EconomyService.getMultiplier(player)
-	EconomyService.addCoins(player, amount, "ClickReward")
+	return profile ~= nil and profile.coins >= amount
 end
 
 function EconomyService.start()
-	stateRemote = Remotes.get("StateChanged") :: RemoteEvent
-
-	local clickRemote = Remotes.get("ClickCoin") :: RemoteEvent
-	clickRemote.OnServerEvent:Connect(EconomyService.handleClick)
-
-	local getState = Remotes.get("GetState") :: RemoteFunction
-	getState.OnServerInvoke = function(player: Player)
-		-- Client may invoke before the profile finishes loading. Yield briefly
-		-- rather than returning a zeroed state the client would render.
-		local deadline = os.clock() + 20
-		while not DataService.get(player) and os.clock() < deadline do
-			task.wait(0.1)
-		end
-		return EconomyService.buildState(player)
-	end
-
 	Players.PlayerRemoving:Connect(function(player)
-		lastClick[player] = nil
-		rejectedClicks[player] = nil
+		lastAction[player] = nil
+		rejectedActions[player] = nil
 		suspicionLogged[player] = nil
-		firstClickDone[player] = nil
-		multipliers[player] = nil
 	end)
 end
 
