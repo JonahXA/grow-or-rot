@@ -213,6 +213,14 @@ Config.Analytics = {
 -- ============================================================
 
 Config.KillCriteria = {
+	-- Gate 0, first 72 hours. These are the thresholds Roblox itself scores:
+	-- clearing them earns 3-5x more algorithmic impressions the following week.
+	-- Free to measure, arrives before there are enough visits to read D1, and
+	-- decisive — failing here means killing the game without spending anything.
+	MinLikeRatioPercent = 80,
+	MinAvgSessionMinutes = 8,
+
+	-- Gate 1 and 2.
 	MinD1RetentionPercent = 20,
 	EvaluateAfterOrganicVisits = 5000,
 	MinCCUWithinTwoWeeks = 50,

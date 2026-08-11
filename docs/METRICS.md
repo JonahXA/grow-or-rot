@@ -5,18 +5,50 @@ The instrumentation exists to answer exactly one question per Phase 1 game:
 
 ## The kill criteria
 
-Written down before building, so they can't be rationalized afterward. Mirrored in
-`Config.KillCriteria`.
+Written down before building, so they can't be rationalized afterward.
 
-| Gate | Threshold | Where to read it |
-|---|---|---|
-| D1 retention | **≥ 20%** after 5,000 organic visits | Creator Dashboard → Analytics → **Engagement** |
-| Organic CCU | **≥ 50** within 2 weeks | Creator Dashboard → **Overview** (peak CCU) |
+| Gate | When | Threshold | Where to read it |
+|---|---|---|---|
+| **0 — Quality** | **first 72 hours** | like ratio **≥ 80%**, avg session **≥ 8 min** | Dashboard → **Overview** and **Engagement** |
+| 1 — Retention | ~5,000 organic visits | D1 **≥ 20%** | Dashboard → Analytics → **Engagement** |
+| 2 — Traction | 2 weeks | **≥ 50** organic CCU | Dashboard → **Overview** (peak CCU) |
 
-Miss either → kill the game and start the next one. Hit both → invest in art, live-ops,
-and only then a $100 ad test.
+Miss any → kill the game and start the next one.
+
+**Gate 0 exists because Roblox scores it whether you like it or not.** Games clearing
+an 80% like ratio and an 8-minute average session in their first 72 hours receive
+**3–5× more algorithmic impressions** the following week. That is the platform's own
+free test of your game, it arrives before you have enough visits to read D1, and it
+costs nothing.
+
+Failing Gate 0 is decisive. Do not wait for 5,000 visits and do not spend a dollar —
+if the game cannot hold an eight-minute session, traffic will not fix it, and the
+algorithm will stop delivering traffic anyway.
 
 The hardest part of this is not the measurement. It's actually killing the game.
+
+## Do you need to pay to find out?
+
+**No.** The platform samples every new experience and amplifies what performs. Gate 0
+is free and is the same signal the algorithm uses.
+
+Money buys **statistical power, not growth**:
+
+- A purchased visit costs **$0.01–0.05**. A visit earns roughly **$0.0019** at decent
+  monetization. Paid acquisition needs 5–26 return visits just to break even, so it is
+  never a growth strategy for an unproven game.
+- The one legitimate use: you cleared Gate 0, but organic sampling is trickling and
+  you cannot read D1 off 300 visits. **$50–100 buys 1,000–10,000 visits**, enough for
+  a real number.
+- Read it knowing **paid traffic retains worse than organic**, so a paid-heavy D1
+  understates the truth. If paid clears 20%, the game is genuinely fine.
+
+**Free traffic to exhaust first:** games with organic creator coverage in week one are
+**5× more likely** to sustain above-average CCU through month one. Posting your own
+clips to TikTok and Shorts costs time rather than money and outperforms a small ad buy.
+
+Order of operations: ship → 72h quality gate → post clips → two weeks organic → only
+then consider $50–100 to buy a readable D1.
 
 ## Why D1 and not revenue
 
