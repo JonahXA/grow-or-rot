@@ -213,10 +213,17 @@ Config.Analytics = {
 -- ============================================================
 
 Config.KillCriteria = {
-	-- Gate 0, first 72 hours. These are the thresholds Roblox itself scores:
-	-- clearing them earns 3-5x more algorithmic impressions the following week.
-	-- Free to measure, arrives before there are enough visits to read D1, and
-	-- decisive — failing here means killing the game without spending anything.
+	-- Gate 0, first 72 hours. Free to measure and arrives long before there are
+	-- enough visits to read D1.
+	--
+	-- These two numbers are a community heuristic, NOT documented Roblox policy.
+	-- What Roblox has officially announced is only the direction: Recommended
+	-- For You now scores D1, D2-7 and D8-28 separately over a 28-day window. Use
+	-- these as a shape, not a rule — don't kill a game over a 78% like ratio.
+	--
+	-- Scoring is per experience, not per account, so a failed game does not
+	-- penalize the next one. A weak launch is also recoverable: updates generate
+	-- a freshness signal, provided they improve the loop rather than add noise.
 	MinLikeRatioPercent = 80,
 	MinAvgSessionMinutes = 8,
 

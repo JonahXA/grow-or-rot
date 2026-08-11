@@ -15,15 +15,33 @@ Written down before building, so they can't be rationalized afterward.
 
 Miss any → kill the game and start the next one.
 
-**Gate 0 exists because Roblox scores it whether you like it or not.** Games clearing
-an 80% like ratio and an 8-minute average session in their first 72 hours receive
-**3–5× more algorithmic impressions** the following week. That is the platform's own
-free test of your game, it arrives before you have enough visits to read D1, and it
-costs nothing.
+**Gate 0 exists because Roblox scores early quality whether you like it or not.** The
+platform samples every new experience and amplifies what performs, so this signal
+arrives free and long before there are enough visits to read D1.
 
-Failing Gate 0 is decisive. Do not wait for 5,000 visits and do not spend a dollar —
-if the game cannot hold an eight-minute session, traffic will not fix it, and the
-algorithm will stop delivering traffic anyway.
+> **Confidence note.** The specific thresholds — 80% like ratio, 8-minute session,
+> 3–5× impressions in the following week — come from a secondary community source,
+> not Roblox documentation. What Roblox *has* announced officially is the direction:
+> Recommended For You moved from a 7-day to a 28-day retention window, scoring D1,
+> D2–7 and D8–28 separately. Treat the numbers as a useful heuristic with roughly the
+> right shape and magnitude. Do not kill a game over a 78% like ratio.
+
+Failing Gate 0 badly is a strong signal. Don't wait for 5,000 visits and don't spend a
+dollar — if the game cannot hold an eight-minute session, traffic will not fix it.
+
+**Scope and recoverability, both verified:**
+
+- **Per experience, not per account.** Each game is evaluated on its own retention and
+  engagement. A failed game does not poison the next one, which is the assumption the
+  whole portfolio strategy rests on.
+- **A weak launch is not final.** Publishing an update generates a freshness signal
+  that boosts a game in Trending and Recommended, and bi-weekly updates keep it alive.
+  Recovery only works when updates genuinely improve the loop — more content, more
+  monetization and more noise buy nothing.
+
+So the first 72 hours is the strongest single window, not the only one. Tune privately
+before going public, because a good launch is worth far more than a recovery grind —
+but a soft launch is a fix-or-kill decision, not an automatic kill.
 
 The hardest part of this is not the measurement. It's actually killing the game.
 
